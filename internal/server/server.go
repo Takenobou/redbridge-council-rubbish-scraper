@@ -97,8 +97,7 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) calendarHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	force := forceRefresh(r.URL.Query())
-	collections, err := s.collections(ctx, force)
+	collections, err := s.collections(ctx)
 	if err != nil {
 		s.respondScrapeError(w, err)
 		return
@@ -127,7 +126,7 @@ func (s *Server) nextHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	collections, err := s.collections(r.Context(), forceRefresh(r.URL.Query()))
+	collections, err := s.collections(r.Context())
 	if err != nil {
 		s.respondUnavailable(w, err)
 		return
@@ -154,7 +153,7 @@ func (s *Server) typesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	collections, err := s.collections(r.Context(), forceRefresh(r.URL.Query()))
+	collections, err := s.collections(r.Context())
 	if err != nil {
 		s.respondUnavailable(w, err)
 		return
@@ -176,7 +175,7 @@ func (s *Server) isTodayHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	collections, err := s.collections(r.Context(), forceRefresh(r.URL.Query()))
+	collections, err := s.collections(r.Context())
 	if err != nil {
 		s.respondUnavailable(w, err)
 		return
@@ -196,7 +195,7 @@ func (s *Server) isTomorrowHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	collections, err := s.collections(r.Context(), forceRefresh(r.URL.Query()))
+	collections, err := s.collections(r.Context())
 	if err != nil {
 		s.respondUnavailable(w, err)
 		return
@@ -210,12 +209,10 @@ func (s *Server) isTomorrowHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (s *Server) collections(ctx context.Context, force bool) ([]scraper.Collection, error) {
-	if !force {
-		if items, ok := s.cache.Get(s.cfg.CacheTTL); ok {
-			s.logger.Info("cache hit", slog.Int("items", len(items)))
-			return items, nil
-		}
+func (s *Server) collections(ctx context.Context) ([]scraper.Collection, error) {
+	if items, ok := s.cache.Get(s.cfg.CacheTTL); ok {
+		s.logger.Info("cache hit", slog.Int("items", len(items)))
+		return items, nil
 	}
 
 	start := time.Now()
@@ -357,11 +354,6 @@ func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
 	}
 	w.WriteHeader(status)
 	_, _ = w.Write(data)
-}
-
-func forceRefresh(values url.Values) bool {
-	v := strings.TrimSpace(values.Get("forceRefresh"))
-	return v == "1" || strings.EqualFold(v, "true")
 }
 
 type collectionCache struct {

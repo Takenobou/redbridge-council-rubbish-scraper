@@ -35,21 +35,26 @@ func TestCollectionsCache(t *testing.T) {
 
 	srv := New(cfg, s, cal, logger)
 
-	if _, err := srv.collections(context.Background(), false); err != nil {
+	if _, err := srv.collections(context.Background()); err != nil {
 		t.Fatalf("collections: %v", err)
 	}
-	if _, err := srv.collections(context.Background(), false); err != nil {
+	if _, err := srv.collections(context.Background()); err != nil {
 		t.Fatalf("collections: %v", err)
 	}
 	if s.calls != 1 {
 		t.Fatalf("expected cache hit, scraper called %d times", s.calls)
 	}
 
-	if _, err := srv.collections(context.Background(), true); err != nil {
-		t.Fatalf("force collections: %v", err)
+	// expire cache to force refresh
+	srv.cache.mu.Lock()
+	srv.cache.fetched = time.Now().Add(-2 * cfg.CacheTTL)
+	srv.cache.mu.Unlock()
+
+	if _, err := srv.collections(context.Background()); err != nil {
+		t.Fatalf("collections after expiry: %v", err)
 	}
 	if s.calls != 2 {
-		t.Fatalf("expected force refresh to call scraper again, got %d", s.calls)
+		t.Fatalf("expected refresh after expiry to call scraper again, got %d", s.calls)
 	}
 }
 
