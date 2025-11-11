@@ -1,6 +1,6 @@
 # Redbridge Council Rubbish Scraper
 
-Tiny Go HTTP service that pretends to be the Redbridge “SaveAddress” flow once a week, scrapes the five-week schedule, and exposes both an `.ics` feed (with VALARMs) and JSON helpers you can plug into automations.
+Minimal Go microservice that emulates the Redbridge “SaveAddress” handshake, scrapes the council’s bin schedule, and publishes the dates as an `.ics` feed plus lightweight JSON endpoints you can plug into automations.
 
 ## Project layout
 
@@ -49,10 +49,34 @@ go run ./cmd/api
 
 Visit `http://localhost:8080/calendar.ics` to prime the cache (first hit scrapes), or `.../api/next` to exercise the JSON logic during tests.
 
-## Future tests
+## Docker quick start
 
-- Fixture-driven parser test with saved HTML markup to guard selectors.
-- Time-travel unit tests for the “after 07:00” edge cases and DST transitions.
-- Golden snapshot asserting ICS headers, event ordering, and `VALARM`s.
+Pull the image hosted at `ghcr.io/takenobou/redbridge-council-rubbish-scraper` and supply your address details:
 
-Hook it up to Home Assistant or subscribe in Apple Calendar via `https://your-domain/calendar.ics` once you’ve put it behind HTTPS.
+```bash
+docker run -d \
+  --name redbridge-ics \
+  -p 8080:8080 \
+  -e UPRN="YOUR_UPRN" \
+  -e ADDRESS_LINE="123 SAMPLE STREET" \
+  -e POSTCODE="IG1 1AA" \
+  ghcr.io/takenobou/redbridge-council-rubbish-scraper:latest
+```
+
+For docker-compose / stacks, drop this into your compose file:
+
+```yaml
+services:
+  redbridge-ics:
+    image: ghcr.io/takenobou/redbridge-council-rubbish-scraper:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      UPRN: "YOUR_UPRN"
+      ADDRESS_LINE: "123 SAMPLE STREET"
+      POSTCODE: "IG1 1AA"
+      CACHE_TTL: "168h"
+```
+
+Both examples expose the service on port 8080; point Apple Calendar or Home Assistant at `http://<host>:8080/calendar.ics`.
