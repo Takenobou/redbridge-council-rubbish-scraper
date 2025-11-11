@@ -135,6 +135,29 @@ func TestCalendarHandler(t *testing.T) {
 	}
 }
 
+func TestMetricsHandler(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(httptest.NewRecorder(), nil))
+	s := &fakeScraper{collections: []scraper.Collection{}}
+	cal := &fakeCalendarBuilder{}
+	cfg := config.Config{
+		ListenAddr: ":0",
+		CacheTTL:   time.Hour,
+		Timezone:   "Europe/London",
+	}
+	srv := New(cfg, s, cal, logger)
+
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	rr := httptest.NewRecorder()
+	srv.metrics.handler().ServeHTTP(rr, req)
+
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "redbridge_cache_hits_total") {
+		t.Fatalf("expected metrics output, got %s", rr.Body.String())
+	}
+}
+
 type fakeScraper struct {
 	collections []scraper.Collection
 	err         error

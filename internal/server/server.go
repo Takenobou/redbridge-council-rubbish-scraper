@@ -40,6 +40,7 @@ type Server struct {
 	httpServer *http.Server
 	cache      *collectionCache
 	location   *time.Location
+	metrics    *metrics
 }
 
 // New prepares a Server for use.
@@ -50,6 +51,8 @@ func New(cfg config.Config, scr Scraper, cal CalendarBuilder, logger *slog.Logge
 
 	loc, _ := time.LoadLocation(cfg.Timezone)
 
+	m := newMetrics()
+
 	s := &Server{
 		cfg:      cfg,
 		scraper:  scr,
@@ -57,6 +60,7 @@ func New(cfg config.Config, scr Scraper, cal CalendarBuilder, logger *slog.Logge
 		logger:   logger,
 		cache:    newCollectionCache(),
 		location: loc,
+		metrics:  m,
 	}
 
 	mux := http.NewServeMux()
@@ -66,6 +70,7 @@ func New(cfg config.Config, scr Scraper, cal CalendarBuilder, logger *slog.Logge
 	mux.HandleFunc("GET /api/types", s.typesHandler)
 	mux.HandleFunc("GET /api/is-today", s.isTodayHandler)
 	mux.HandleFunc("GET /api/is-tomorrow", s.isTomorrowHandler)
+	mux.Handle("GET /metrics", s.metrics.handler())
 
 	s.httpServer = &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -212,16 +217,33 @@ func (s *Server) isTomorrowHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) collections(ctx context.Context) ([]scraper.Collection, error) {
 	if items, ok := s.cache.Get(s.cfg.CacheTTL); ok {
 		s.logger.Info("cache hit", slog.Int("items", len(items)))
+		if s.metrics != nil {
+			s.metrics.cacheHits.Inc()
+		}
 		return items, nil
+	}
+
+	if s.metrics != nil {
+		s.metrics.cacheMisses.Inc()
+		s.metrics.scrapeRequests.Inc()
 	}
 
 	start := time.Now()
 	s.logger.Info("scrape start")
 	items, err := s.scraper.FetchCollections(ctx)
 	if err != nil {
+		if s.metrics != nil {
+			s.metrics.scrapeFailures.Inc()
+		}
 		return nil, err
 	}
-	s.logger.Info("scrape complete", slog.Int("items", len(items)), slog.Duration("took", time.Since(start)))
+	duration := time.Since(start)
+	s.logger.Info("scrape complete", slog.Int("items", len(items)), slog.Duration("took", duration))
+
+	if s.metrics != nil {
+		s.metrics.scrapeDuration.Observe(duration.Seconds())
+		s.metrics.lastScrapeTime.Set(float64(time.Now().Unix()))
+	}
 
 	s.cache.Set(items)
 	return items, nil
