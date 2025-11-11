@@ -61,6 +61,7 @@ func (b *Builder) Build(collections []scraper.Collection) ([]byte, error) {
 	cal.SetName(b.cfg.Name)
 	if b.cfg.Description != "" {
 		cal.SetDescription(b.cfg.Description)
+		cal.SetXWRCalDesc(b.cfg.Description)
 	}
 
 	for _, collection := range collections {
