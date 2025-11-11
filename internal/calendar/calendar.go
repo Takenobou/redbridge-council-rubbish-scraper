@@ -1,9 +1,8 @@
 package calendar
 
 import (
-	"crypto/sha1"
-	"encoding/hex"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -13,60 +12,92 @@ import (
 	"github.com/Takenobou/redbridge-council-rubbish-scraper/internal/scraper"
 )
 
+const (
+	productID            = "-//redbridge-ics//EN"
+	eventDescriptionBody = "Place bins out by 06:00 on collection day."
+)
+
+var slugRegex = regexp.MustCompile(`[^a-z0-9]+`)
+
+// Config defines calendar level metadata.
+type Config struct {
+	Name        string
+	Description string
+	Timezone    string
+}
+
 // Builder transforms scraped data into an .ics payload.
 type Builder struct {
-	serviceName string
-	location    *time.Location
+	cfg      Config
+	location *time.Location
 }
 
 // NewBuilder initialises a calendar builder with timezone handling.
-func NewBuilder(serviceName, timezone string) (*Builder, error) {
-	if serviceName == "" {
-		return nil, fmt.Errorf("service name is required")
+func NewBuilder(cfg Config) (*Builder, error) {
+	if cfg.Name == "" {
+		return nil, fmt.Errorf("calendar name is required")
+	}
+	if cfg.Timezone == "" {
+		cfg.Timezone = "Europe/London"
 	}
 
-	if timezone == "" {
-		timezone = "Europe/London"
-	}
-
-	loc, err := time.LoadLocation(timezone)
+	loc, err := time.LoadLocation(cfg.Timezone)
 	if err != nil {
 		return nil, fmt.Errorf("load timezone: %w", err)
 	}
 
 	return &Builder{
-		serviceName: serviceName,
-		location:    loc,
+		cfg:      cfg,
+		location: loc,
 	}, nil
 }
 
 // Build creates the textual iCalendar representation.
 func (b *Builder) Build(collections []scraper.Collection) ([]byte, error) {
 	cal := ics.NewCalendar()
-	cal.SetProductId("-//redbridge council scraper//EN")
+	cal.SetProductId(productID)
 	cal.SetCalscale("GREGORIAN")
 	cal.SetMethod(ics.MethodPublish)
-	cal.SetName(b.serviceName)
+	cal.SetName(b.cfg.Name)
+	if b.cfg.Description != "" {
+		cal.SetDescription(b.cfg.Description)
+	}
 
 	for _, collection := range collections {
 		event := cal.AddEvent(eventID(collection))
-		event.SetSummary(fmt.Sprintf("%s collection", titleCase(collection.Type)))
-		event.SetDescription("Scheduled waste collection provided by Redbridge Council")
+		event.SetSummary(fmt.Sprintf("Bin: %s", titleCase(collection.Type)))
+		event.SetDescription(eventDescriptionBody)
+		event.SetProperty(ics.ComponentPropertyCategories, collection.Type)
 
 		start := collection.Date.In(b.location)
 		end := start.Add(time.Hour)
 		event.SetStartAt(start)
 		event.SetEndAt(end)
-		event.SetAllDayStartAt(start)
-		event.SetAllDayEndAt(end)
+		event.SetDtStampTime(time.Now())
+
+		addAlarm(event, "-PT11H")
+		addAlarm(event, "-PT30M")
 	}
 
 	return []byte(cal.Serialize()), nil
 }
 
+func addAlarm(event *ics.VEvent, trigger string) {
+	alarm := event.AddAlarm()
+	alarm.SetAction(ics.ActionDisplay)
+	alarm.SetDescription("Bin reminder")
+	alarm.SetTrigger(trigger)
+}
+
 func eventID(collection scraper.Collection) string {
-	hash := sha1.Sum([]byte(collection.Date.Format(time.RFC3339) + collection.Type))
-	return fmt.Sprintf("collection-%s@redbridge.local", hex.EncodeToString(hash[:]))
+	date := collection.Date.Format("20060102")
+	return fmt.Sprintf("%s-%s@redbridge-ics", slug(collection.Type), date)
+}
+
+func slug(value string) string {
+	lower := strings.ToLower(value)
+	lower = slugRegex.ReplaceAllString(lower, "-")
+	return strings.Trim(lower, "-")
 }
 
 func titleCase(value string) string {

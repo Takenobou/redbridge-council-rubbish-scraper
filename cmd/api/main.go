@@ -30,18 +30,28 @@ func main() {
 	}))
 
 	scraperClient, err := scraper.New(scraper.Config{
-		ScheduleURL:        cfg.ScheduleURL,
-		CollectionSelector: cfg.CollectionSelector,
-		DateSelector:       cfg.DateSelector,
-		TypeSelector:       cfg.TypeSelector,
-		UserAgent:          cfg.UserAgent,
+		BaseURL:        cfg.BaseURL,
+		SchedulePath:   cfg.SchedulePath,
+		UPRN:           cfg.UPRN,
+		AddressLine:    cfg.AddressLine,
+		Postcode:       cfg.Postcode,
+		Latitude:       cfg.Latitude,
+		Longitude:      cfg.Longitude,
+		UserAgent:      cfg.UserAgent,
+		StartHour:      cfg.StartHour,
+		RequestTimeout: cfg.RequestTimeout,
+		Timezone:       cfg.Timezone,
 	})
 	if err != nil {
 		logger.Error("scraper init failed", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 
-	calendarBuilder, err := calendar.NewBuilder(cfg.ServiceName, cfg.Timezone)
+	calendarBuilder, err := calendar.NewBuilder(calendar.Config{
+		Name:        cfg.CalendarName,
+		Description: cfg.CalendarDesc,
+		Timezone:    cfg.Timezone,
+	})
 	if err != nil {
 		logger.Error("calendar init failed", slog.String("error", err.Error()))
 		os.Exit(1)
