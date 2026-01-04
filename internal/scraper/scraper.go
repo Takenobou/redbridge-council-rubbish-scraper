@@ -43,8 +43,16 @@ type Config struct {
 
 // Collection represents a single waste collection slot.
 type Collection struct {
-	Date time.Time
-	Type string
+	Date         time.Time
+	Type         string
+	Instructions []Instruction
+	Note         string
+}
+
+// Instruction captures a single guidance line and any related links.
+type Instruction struct {
+	Text  string
+	Links []string
 }
 
 // Scraper performs the SaveAddress handshake and scrapes the upcoming schedule.
@@ -249,13 +257,20 @@ func (s *Scraper) parseCollections(body []byte) ([]Collection, error) {
 	}
 
 	var results []Collection
-	seen := make(map[string]struct{})
+	seen := make(map[string]int)
+	var gardenNotice string
 
 	for _, def := range defs {
 		block := container.Find(def.blockSelector)
 		if block.Length() == 0 {
 			continue
 		}
+		instructions := extractInstructions(block, s.cfg.BaseURL)
+		blockNotice := ""
+		if def.wasteType == "Garden Waste" {
+			blockNotice = extractGardenNotice(block)
+		}
+		added := 0
 		block.Find(def.entrySelector).Each(func(_ int, sel *goquery.Selection) {
 			dayText := strings.TrimSpace(sel.Find(def.daySelector).Text())
 			monthText := strings.TrimSpace(sel.Find(def.monthSelector).Text())
@@ -268,17 +283,40 @@ func (s *Scraper) parseCollections(body []byte) ([]Collection, error) {
 				return
 			}
 
+			note := extractNoteText(sel, def)
 			key := fmt.Sprintf("%s|%s", date.Format(time.RFC3339), def.wasteType)
-			if _, exists := seen[key]; exists {
+			if idx, exists := seen[key]; exists {
+				if note != "" && results[idx].Note == "" {
+					results[idx].Note = note
+				}
+				if len(instructions) > 0 && len(results[idx].Instructions) == 0 {
+					results[idx].Instructions = cloneInstructions(instructions)
+				}
 				return
 			}
-			seen[key] = struct{}{}
+			seen[key] = len(results)
 
 			results = append(results, Collection{
-				Date: date,
-				Type: def.wasteType,
+				Date:         date,
+				Type:         def.wasteType,
+				Instructions: cloneInstructions(instructions),
+				Note:         note,
 			})
+			added++
 		})
+
+		if def.wasteType == "Garden Waste" && added == 0 && blockNotice != "" {
+			gardenNotice = blockNotice
+		}
+	}
+
+	if gardenNotice != "" {
+		for i := range results {
+			if results[i].Type == "Garden Waste" {
+				continue
+			}
+			results[i].Note = appendNote(results[i].Note, gardenNotice)
+		}
 	}
 
 	return results, nil
@@ -314,4 +352,127 @@ type blockDefinition struct {
 
 func normalizeSpaces(value string) string {
 	return strings.Join(strings.Fields(value), " ")
+}
+
+func extractGardenNotice(block *goquery.Selection) string {
+	notice := normalizeSpaces(block.Find(".collectionDates-container .upcoming-dates").First().Text())
+	return notice
+}
+
+func extractInstructions(block *goquery.Selection, baseURL string) []Instruction {
+	detail := block.Find(".collectionDetail").First()
+	if detail.Length() == 0 {
+		return nil
+	}
+
+	var instructions []Instruction
+	detail.Find("p.instructions").Each(func(_ int, p *goquery.Selection) {
+		text := instructionText(p)
+		if text == "" {
+			return
+		}
+		instructions = append(instructions, Instruction{
+			Text:  text,
+			Links: extractLinks(p, baseURL),
+		})
+	})
+
+	return instructions
+}
+
+func instructionText(sel *goquery.Selection) string {
+	var parts []string
+	sel.Contents().Each(func(_ int, child *goquery.Selection) {
+		text := strings.TrimSpace(child.Text())
+		if text == "" {
+			return
+		}
+		parts = append(parts, text)
+	})
+	return normalizeSpaces(strings.Join(parts, " "))
+}
+
+func extractLinks(sel *goquery.Selection, baseURL string) []string {
+	seen := make(map[string]struct{})
+	var links []string
+	sel.Find("a[href]").Each(func(_ int, a *goquery.Selection) {
+		href := strings.TrimSpace(attrValue(a, "href"))
+		if href == "" {
+			return
+		}
+		resolved := resolveLink(baseURL, href)
+		if resolved == "" {
+			return
+		}
+		if _, exists := seen[resolved]; exists {
+			return
+		}
+		seen[resolved] = struct{}{}
+		links = append(links, resolved)
+	})
+	return links
+}
+
+func resolveLink(baseURL, href string) string {
+	ref, err := url.Parse(href)
+	if err != nil {
+		return ""
+	}
+	if ref.IsAbs() {
+		return ref.String()
+	}
+	base, err := url.Parse(baseURL)
+	if err != nil {
+		return href
+	}
+	return base.ResolveReference(ref).String()
+}
+
+func attrValue(sel *goquery.Selection, key string) string {
+	value, _ := sel.Attr(key)
+	return value
+}
+
+func extractNoteText(sel *goquery.Selection, def blockDefinition) string {
+	var notes []string
+	sel.Find(".asterisk-note").Each(func(_ int, noteSel *goquery.Selection) {
+		if def.daySelector != "" && noteSel.Is(def.daySelector) {
+			return
+		}
+		if def.monthSelector != "" && noteSel.Is(def.monthSelector) {
+			return
+		}
+		classAttr, _ := noteSel.Attr("class")
+		if strings.Contains(classAttr, "collection-day") || strings.Contains(classAttr, "collection-month") {
+			return
+		}
+		text := normalizeSpaces(noteSel.Text())
+		if text == "" {
+			return
+		}
+		notes = append(notes, text)
+	})
+	return strings.Join(notes, " ")
+}
+
+func cloneInstructions(values []Instruction) []Instruction {
+	if len(values) == 0 {
+		return nil
+	}
+	return append([]Instruction(nil), values...)
+}
+
+func appendNote(existing, extra string) string {
+	existing = strings.TrimSpace(existing)
+	extra = strings.TrimSpace(extra)
+	if extra == "" {
+		return existing
+	}
+	if existing == "" {
+		return extra
+	}
+	if strings.Contains(existing, extra) {
+		return existing
+	}
+	return existing + "\n" + extra
 }

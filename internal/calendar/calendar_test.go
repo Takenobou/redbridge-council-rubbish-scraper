@@ -20,8 +20,11 @@ func TestBuilderBuild(t *testing.T) {
 	}
 
 	collections := []scraper.Collection{
-		{Date: time.Date(2025, time.December, 2, 6, 0, 0, 0, loc), Type: "Refuse"},
-		{Date: time.Date(2025, time.December, 2, 6, 0, 0, 0, loc), Type: "Recycling"},
+		{Date: time.Date(2025, time.December, 2, 6, 0, 0, 0, loc), Type: "Refuse", Note: "Date changed due to bank holiday."},
+		{Date: time.Date(2025, time.December, 2, 6, 0, 0, 0, loc), Type: "Recycling", Instructions: []scraper.Instruction{
+			{Text: "Rinse containers before recycling."},
+			{Text: "Missed collection? Report missed recycling collection", Links: []string{"https://my.redbridge.gov.uk/MissedCollection/recycling"}},
+		}},
 	}
 
 	data, err := b.Build(collections)
@@ -29,7 +32,7 @@ func TestBuilderBuild(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 
-	cal := string(data)
+	cal := unfoldICS(string(data))
 
 	mustContain(t, cal, "PRODID:-//redbridge-ics//EN")
 	mustContain(t, cal, "X-WR-CALNAME:Redbridge Collections")
@@ -42,6 +45,13 @@ func TestBuilderBuild(t *testing.T) {
 	mustContain(t, cal, "TRIGGER:-PT30M")
 	mustContain(t, cal, "CATEGORIES:Refuse")
 	mustContain(t, cal, "CATEGORIES:Recycling")
+	mustContain(t, cal, "INSTRUCTIONS")
+	mustContain(t, cal, "• Place bins out by 06:00 on collection day.")
+	mustContain(t, cal, "NOTE")
+	mustContain(t, cal, "• Date changed due to bank holiday.")
+	mustContain(t, cal, "• Rinse containers before recycling.")
+	mustContain(t, cal, "MISSED COLLECTION")
+	mustContain(t, cal, "https://my.redbridge.gov.uk/MissedCollection/recycling")
 }
 
 func mustContain(t *testing.T, haystack, needle string) {
@@ -49,4 +59,10 @@ func mustContain(t *testing.T, haystack, needle string) {
 	if !strings.Contains(haystack, needle) {
 		t.Fatalf("expected calendar to contain %q", needle)
 	}
+}
+
+func unfoldICS(value string) string {
+	value = strings.ReplaceAll(value, "\r\n ", "")
+	value = strings.ReplaceAll(value, "\n ", "")
+	return value
 }

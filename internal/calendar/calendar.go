@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	productID            = "-//redbridge-ics//EN"
-	eventDescriptionBody = "Place bins out by 06:00 on collection day."
+	productID          = "-//redbridge-ics//EN"
+	defaultInstruction = "Place bins out by 06:00 on collection day."
 )
 
 var slugRegex = regexp.MustCompile(`[^a-z0-9]+`)
@@ -67,7 +67,7 @@ func (b *Builder) Build(collections []scraper.Collection) ([]byte, error) {
 	for _, collection := range collections {
 		event := cal.AddEvent(eventID(collection))
 		event.SetSummary(fmt.Sprintf("Bin: %s", titleCase(collection.Type)))
-		event.SetDescription(eventDescriptionBody)
+		event.SetDescription(eventDescription(collection))
 		event.SetProperty(ics.ComponentPropertyCategories, collection.Type)
 
 		start := collection.Date.In(b.location)
@@ -88,6 +88,143 @@ func addAlarm(event *ics.VEvent, trigger string) {
 	alarm.SetAction(ics.ActionDisplay)
 	alarm.SetDescription("Bin reminder")
 	alarm.SetTrigger(trigger)
+}
+
+func eventDescription(collection scraper.Collection) string {
+	instructionTexts, missedLinks, otherLinks := splitInstructions(collection.Instructions)
+	if len(instructionTexts) == 0 {
+		instructionTexts = []string{defaultInstruction}
+	}
+
+	var sections []string
+	if section := formatInstructionSection(instructionTexts); section != "" {
+		sections = append(sections, section)
+	}
+	if len(missedLinks) > 0 {
+		sections = append(sections, formatLinksSection("MISSED COLLECTION", missedLinks))
+	}
+	if len(otherLinks) > 0 {
+		sections = append(sections, formatLinksSection("LINKS", otherLinks))
+	}
+	if note := strings.TrimSpace(collection.Note); note != "" {
+		sections = append(sections, formatNoteSection(note))
+	}
+
+	return strings.Join(sections, "\n\n")
+}
+
+func splitInstructions(lines []scraper.Instruction) ([]string, []string, []string) {
+	var instructionTexts []string
+	var missedLinks []string
+	var otherLinks []string
+
+	for _, line := range lines {
+		text := strings.TrimSpace(line.Text)
+		links := cleanLinks(line.Links)
+		if len(links) == 0 {
+			if text != "" {
+				instructionTexts = append(instructionTexts, text)
+			}
+			continue
+		}
+		if isMissedCollection(text, links) {
+			missedLinks = appendUnique(missedLinks, links...)
+			continue
+		}
+		if text != "" {
+			instructionTexts = append(instructionTexts, text)
+		}
+		otherLinks = appendUnique(otherLinks, links...)
+	}
+
+	return instructionTexts, missedLinks, otherLinks
+}
+
+func cleanLinks(links []string) []string {
+	var cleaned []string
+	for _, link := range links {
+		link = strings.TrimSpace(link)
+		if link == "" {
+			continue
+		}
+		cleaned = append(cleaned, link)
+	}
+	return cleaned
+}
+
+func appendUnique(dst []string, values ...string) []string {
+	seen := make(map[string]struct{}, len(dst))
+	for _, v := range dst {
+		seen[v] = struct{}{}
+	}
+	for _, v := range values {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		dst = append(dst, v)
+	}
+	return dst
+}
+
+func isMissedCollection(text string, links []string) bool {
+	lower := strings.ToLower(text)
+	if strings.Contains(lower, "missed collection") {
+		return true
+	}
+	for _, link := range links {
+		if strings.Contains(strings.ToLower(link), "/missedcollection") {
+			return true
+		}
+	}
+	return false
+}
+
+func formatInstructionSection(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("INSTRUCTIONS")
+	for _, line := range lines {
+		text := strings.TrimSpace(line)
+		if text == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "\n• %s", text)
+	}
+	return b.String()
+}
+
+func formatLinksSection(title string, links []string) string {
+	if len(links) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(title)
+	for _, link := range links {
+		link = strings.TrimSpace(link)
+		if link == "" {
+			continue
+		}
+		b.WriteString("\n")
+		b.WriteString(link)
+	}
+	return b.String()
+}
+
+func formatNoteSection(note string) string {
+	lines := strings.Split(note, "\n")
+	var b strings.Builder
+	b.WriteString("NOTE")
+	for _, line := range lines {
+		text := strings.TrimSpace(line)
+		if text == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "\n• %s", text)
+	}
+	return b.String()
 }
 
 func eventID(collection scraper.Collection) string {
