@@ -153,10 +153,6 @@ func (s *Scraper) seedAddress(ctx context.Context, client *http.Client) error {
 	defer resp.Body.Close()
 	io.Copy(io.Discard, resp.Body)
 
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("%w: status %d", ErrAddressSetup, resp.StatusCode)
-	}
-
 	hasCookie := false
 	for _, c := range resp.Cookies() {
 		if c.Name == "RedbridgeIV3LivePref" {
@@ -175,6 +171,9 @@ func (s *Scraper) seedAddress(ctx context.Context, client *http.Client) error {
 		}
 	}
 	if !hasCookie {
+		if resp.StatusCode >= 400 {
+			return fmt.Errorf("%w: status %d", ErrAddressSetup, resp.StatusCode)
+		}
 		return ErrAddressSetup
 	}
 
@@ -239,6 +238,13 @@ func (s *Scraper) parseCollections(body []byte) ([]Collection, error) {
 			daySelector:   ".garden-collection-day-numeric",
 			monthSelector: ".garden-collection-month",
 			wasteType:     "Garden Waste",
+		},
+		{
+			blockSelector: ".foodwasteCollectionDay",
+			entrySelector: ".collectionDates-container .garden-collection-postdate",
+			daySelector:   ".food-garden-collection-day-numeric",
+			monthSelector: ".food-collection-month",
+			wasteType:     "Food Waste",
 		},
 	}
 

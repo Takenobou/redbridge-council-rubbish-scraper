@@ -5,7 +5,7 @@ Minimal Go microservice that emulates the Redbridge “SaveAddress” handshake,
 ## Project layout
 
 ```
-cmd/api            # 12-factor entrypoint
+cmd/api            # API entrypoint
 internal/config    # Environment-driven runtime config
 internal/scraper   # SaveAddress bootstrap + goquery parser
 internal/calendar  # arran4/golang-ical builder with alarms
