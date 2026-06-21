@@ -243,7 +243,7 @@ func (s *Scraper) parseCollections(body []byte) ([]Collection, error) {
 		{
 			blockSelector: ".garden-container",
 			entrySelector: ".collectionDates-container .garden-collection-postdate",
-			daySelector:   ".garden-collection-day-numeric",
+			daySelector:   ".garden-collection-day-numeric, .garden-garden-collection-day-numeric",
 			monthSelector: ".garden-collection-month",
 			wasteType:     "Garden Waste",
 		},

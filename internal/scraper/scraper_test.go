@@ -187,6 +187,92 @@ func TestFetchCollectionsGardenNotice(t *testing.T) {
 	}
 }
 
+func TestParseCollectionsCurrentGardenMarkup(t *testing.T) {
+	html := `<div class="your-collection-schedule-container">
+  <div class="garden-container">
+    <div class="collectionType">
+      <h3>Garden Waste</h3>
+      <p></p>
+    </div>
+    <p class="upcoming-dates">Upcoming collection dates:</p>
+    <div class="collectionDates-container bs3-col-sm-12">
+      <div class="garden-collection-postdate bs3-col-sm-2">
+        <div class="garden-collection-day-of-week">Wednesday</div>
+        <div class="garden-garden-collection-day-numeric">24</div>
+        <div class="garden-collection-month">June 2026</div>
+      </div>
+      <div class="garden-collection-postdate bs3-col-sm-2">
+        <div class="garden-collection-day-of-week">Wednesday</div>
+        <div class="garden-garden-collection-day-numeric">08</div>
+        <div class="garden-collection-month">July 2026</div>
+      </div>
+      <div class="garden-collection-postdate bs3-col-sm-2">
+        <div class="garden-collection-day-of-week">Wednesday</div>
+        <div class="garden-garden-collection-day-numeric">22</div>
+        <div class="garden-collection-month">July 2026</div>
+      </div>
+      <div class="garden-collection-postdate bs3-col-sm-2">
+        <div class="garden-collection-day-of-week">Wednesday</div>
+        <div class="garden-garden-collection-day-numeric">05</div>
+        <div class="garden-collection-month">August 2026</div>
+      </div>
+      <div class="garden-collection-postdate bs3-col-sm-2">
+        <div class="garden-collection-day-of-week">Wednesday</div>
+        <div class="garden-garden-collection-day-numeric">19</div>
+        <div class="garden-collection-month">August 2026</div>
+      </div>
+    </div>
+    <div class="collectionDetail bs3-col-sm-12">
+      <p class="instructions smalltext muted">
+        Please place your garden waste at the boundary of your property by <strong>6.00am</strong>.<br>
+        We will collect up to <strong>5 sacks.</strong> Leave all sacks open so the waste can be seen.<br>
+        You can use Green Garden Waste sacks, black bin bags or clear sacks.
+      </p>
+      <p class="instructions smalltext muted">
+        <span class="missed-text">Missed collection?</span>
+        <a href="/MissedCollection/garden" class="redbridge-link">Report missed garden waste collection</a>
+      </p>
+    </div>
+  </div>
+</div>`
+
+	s, err := New(Config{
+		BaseURL:        "https://www.redbridge.gov.uk",
+		SchedulePath:   "/RecycleRefuse",
+		UPRN:           "123",
+		StartHour:      6,
+		RequestTimeout: time.Second,
+		Timezone:       "Europe/London",
+	})
+	if err != nil {
+		t.Fatalf("New scraper: %v", err)
+	}
+
+	collections, err := s.parseCollections([]byte(html))
+	if err != nil {
+		t.Fatalf("parseCollections: %v", err)
+	}
+	if len(collections) != 5 {
+		t.Fatalf("expected 5 garden collections, got %d", len(collections))
+	}
+
+	first := collections[0]
+	if first.Type != "Garden Waste" {
+		t.Fatalf("expected Garden Waste, got %s", first.Type)
+	}
+	expectedDate := time.Date(2026, time.June, 24, 6, 0, 0, 0, s.location)
+	if !first.Date.Equal(expectedDate) {
+		t.Fatalf("expected first date %s, got %s", expectedDate, first.Date)
+	}
+	if len(first.Instructions) != 2 {
+		t.Fatalf("expected 2 garden instructions, got %d", len(first.Instructions))
+	}
+	expectedLink := "https://www.redbridge.gov.uk/MissedCollection/garden"
+	if len(first.Instructions[1].Links) != 1 || first.Instructions[1].Links[0] != expectedLink {
+		t.Fatalf("unexpected garden missed collection link: %v", first.Instructions[1].Links)
+	}
+}
+
 func TestFetchCollectionsSaveAddressFailureWithCookie(t *testing.T) {
 	html := loadFixture(t, "testdata/schedule.html")
 
